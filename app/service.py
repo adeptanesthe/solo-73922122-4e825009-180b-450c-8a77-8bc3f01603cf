@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .alignment import PairScan, overlap_rect, scan_pair
+from .alignment import PairScan, scan_pair
 from .imaging import DecodedImage
 from .models import (
     AlignResponse,
@@ -62,20 +62,6 @@ def _mosaic_bounds(images: list[DecodedImage], positions) -> MosaicBounds:
         width=x_max - x_min,
         height=y_max - y_min,
     )
-
-
-def _pair_mad(
-    a: DecodedImage, b: DecodedImage, dx: int, dy: int
-) -> tuple[int, float]:
-    """Overlap pixel count and MAD at a chosen offset (used to report results)."""
-    rect = overlap_rect(a.width, a.height, b.width, b.height, dx, dy)
-    if rect is None:  # pragma: no cover - a solved layout always overlaps
-        return 0, float("nan")
-    x0, y0, x1, y1 = rect
-    sub_a = a.array[y0:y1, x0:x1].astype(np.int16)
-    sub_b = b.array[y0 - dy : y1 - dy, x0 - dx : x1 - dx].astype(np.int16)
-    n = (x1 - x0) * (y1 - y0)
-    return n, float(np.abs(sub_a - sub_b).sum(dtype=np.int64)) / n
 
 
 def align(images: list[DecodedImage], spec: AlignSpec) -> AlignResponse:
@@ -159,7 +145,10 @@ def align(images: list[DecodedImage], spec: AlignSpec) -> AlignResponse:
         ]
         pair_results = []
         for scan, (dx, dy) in zip(scans, layout.pair_offsets):
-            overlap_n, mad = _pair_mad(images[scan.a], images[scan.b], dx, dy)
+            # Reuse the exact MAD already produced by the scan; the aligned
+            # layout only ever selects accepted offsets, so no re-scoring is
+            # needed here.
+            overlap_n, mad = scan.scores[(dx, dy)]
             pair_results.append(
                 PairResult(
                     pair_id=scan.pair_id,
